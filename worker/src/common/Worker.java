@@ -98,6 +98,19 @@ public class Worker {
         }
     }
 
+    /** Game saves (RMS) live here. A read-only or full disk makes saving silently fail inside the game. */
+    static void probeSaveDir(File dir) {
+        try {
+            dir.mkdirs();
+            File t = File.createTempFile(".probe", ".tmp", dir);
+            if (!t.delete()) throw new java.io.IOException("không xóa được file thử");
+        } catch (Throwable e) {
+            Errors.warn("Không ghi được dữ liệu lưu game",
+                "Thư mục lưu: " + dir.getAbsolutePath() + "\nLý do: " + e
+                + "\nGame vẫn chạy, nhưng tiến độ chơi sẽ không được lưu và sẽ mất khi phiên kết thúc.");
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         System.setProperty("java.awt.headless", "true");
         final PrintStream frames = new PrintStream(new FileOutputStream(FileDescriptor.out), false);
@@ -127,8 +140,11 @@ public class Worker {
             return;
         }
         final Emulator emu = made;
+        final File rmsDir = new File(opt(args, "--rms", "rms"));
+        if (jar != null) probeSaveDir(rmsDir);
         final long startedAt = System.currentTimeMillis();
         final boolean[] warnedBlank = {false};
+        final int[] tickBox = {0};
 
         final boolean[] watching = {false};
 
@@ -169,13 +185,25 @@ public class Worker {
                 out.writeInt(b.length);
                 out.write(b);
                 out.flush();
-            } catch (Exception e) {
+            } catch (Throwable e) { // an Error escaping a scheduled task would cancel it for good: the picture would freeze
                 System.err.println("frame error: " + e);
+                Errors.warn("Không mã hóa được hình ảnh của game", e);
             }
         }, 0, 66, TimeUnit.MILLISECONDS);
 
         ex.scheduleAtFixedRate(() -> {
-            String st = emu.state();
+            String st;
+            try {
+                st = emu.state();
+                if (++tickBox[0] % 30 == 0 && jar != null && rmsDir.getUsableSpace() < 20L * 1024 * 1024) {
+                    Errors.warn("Ổ đĩa gần đầy",
+                        "Chỉ còn " + (rmsDir.getUsableSpace() / 1048576) + " MB trống ở " + rmsDir.getAbsolutePath()
+                        + ".\nKhi đầy, game không lưu được tiến độ.");
+                }
+            } catch (Throwable e) {
+                Errors.warn("Không đọc được trạng thái giả lập", e);
+                return;
+            }
             System.err.println("STATE " + st);
             if (!warnedBlank[0] && st.contains("paints=0 ") && System.currentTimeMillis() - startedAt > 25_000) {
                 warnedBlank[0] = true;

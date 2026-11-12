@@ -51,6 +51,11 @@ export function FatalOverlay({ id, info, phase, errors, go, onRetry }) {
     <div className="absolute inset-0 overflow-auto bg-black p-4">
       <div className="mx-auto flex min-h-full max-w-xl flex-col justify-center gap-2 py-4">
         <h2 className="text-center text-lg font-semibold text-slate-100">{heading}</h2>
+        {phase === 'missing' && (
+          <p className="text-center text-sm text-slate-400">
+            Phiên đã bị đóng, hoặc máy chủ vừa khởi động lại (khi đó mọi phiên đang chạy đều mất). Hãy chơi lại từ trang chủ.
+          </p>
+        )}
         {!fatal.length && info?.exitCode ? (
           <p className="text-center text-sm text-slate-400">Mã thoát: {String(info.exitCode)}</p>
         ) : null}
@@ -89,7 +94,7 @@ export function WarnBanner({ warns }) {
   if (warns.length <= hidden) return null;
   const last = warns[warns.length - 1];
   return (
-    <div className="absolute inset-x-0 top-0 z-10 bg-amber-900/95 text-amber-50 shadow-lg">
+    <div className="bg-amber-900/95 text-amber-50 shadow-lg">
       <div className="flex items-center gap-2 px-3 py-1.5 text-xs">
         <span aria-hidden>⚠</span>
         <button onClick={() => setOpen((o) => !o)} className="min-w-0 flex-1 truncate text-left underline-offset-2 hover:underline">

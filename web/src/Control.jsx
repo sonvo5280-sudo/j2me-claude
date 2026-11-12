@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, prettyName } from './api.js';
 import Keypad from './Keypad.jsx';
 import { FatalOverlay, WarnBanner } from './ErrorPanel.jsx';
+import ConnectionBanner from './ConnectionBanner.jsx';
 
 // Physical keyboard -> J2ME key codes. Anything printable is sent as its own character code
 // (letters, digits, space, symbols), so the game receives exactly what was typed.
@@ -34,6 +35,8 @@ export default function Control({ id, go }) {
   const [confirm, setConfirm] = useState(''); // '' | 'reset' | 'close'
   const [busy, setBusy] = useState(false);
   const [imeOn, setImeOn] = useState(false); // phone's own on-screen keyboard is open
+  const [downSince, setDownSince] = useState(null); // when the link to the server was lost (null = fine)
+  const phaseRef = useRef('connecting');
   const imeRef = useRef(null);
   const canvasRef = useRef(null);
   const boxRef = useRef(null);
@@ -62,8 +65,17 @@ export default function Control({ id, go }) {
   useEffect(() => {
     let dead = false;
     const load = () => api.session(id)
-      .then((s) => { if (!dead) { setInfo(s); if (s.status !== 'running') setPhase('ended'); } })
-      .catch((e) => { if (!dead && e.status === 404) setPhase('missing'); });
+      .then((s) => {
+        if (dead) return;
+        setInfo(s);
+        if (s.status !== 'running') setPhase('ended');
+        else if (phaseRef.current === 'live') setDownSince(null);
+      })
+      .catch((e) => {
+        if (dead) return;
+        if (e.status === 404) setPhase('missing');
+        else setDownSince((d) => d ?? Date.now()); // network error or 5xx: the server is not answering properly
+      });
     load();
     const t = setInterval(load, 2000);
     return () => { dead = true; clearInterval(t); };
@@ -92,7 +104,7 @@ export default function Control({ id, go }) {
       const ws = new WebSocket(`${proto}://${location.host}/ws?session=${id}`);
       ws.binaryType = 'blob';
       wsRef.current = ws;
-      ws.onopen = () => { retry = 0; setPhase('live'); };
+      ws.onopen = () => { retry = 0; setPhase('live'); setDownSince(null); };
       ws.onmessage = (e) => { if (e.data instanceof Blob) draw(e.data); };
       ws.onclose = (e) => {
         if (closed) return;
@@ -101,6 +113,7 @@ export default function Control({ id, go }) {
           return;
         }
         setPhase('connecting');
+        setDownSince((d) => d ?? Date.now());
         timer = setTimeout(open, Math.min(3000, 300 * 2 ** retry++));
       };
     };
@@ -237,6 +250,7 @@ export default function Control({ id, go }) {
   }, [confirm]);
 
   const title = prettyName(info?.game);
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
   const errors = info?.errors || [];
   const fatal = errors.some((e) => e.level === 'fatal');
   const gone = phase === 'ended' || phase === 'missing' || fatal;
@@ -288,9 +302,12 @@ export default function Control({ id, go }) {
           style={{ touchAction: 'none', cursor: 'default' }}
         />
         {phase === 'connecting' && !gone && (
-          <div className="pointer-events-none absolute inset-x-0 top-3 text-center text-xs text-slate-400">Đang kết nối…</div>
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 text-center text-xs text-slate-400">Đang kết nối…</div>
         )}
-        {!gone && <WarnBanner warns={errors.filter((e) => e.level === 'warn')} />}
+        <div className="absolute inset-x-0 top-0 z-10">
+          {!gone && <ConnectionBanner downSince={downSince} />}
+          {!gone && <WarnBanner warns={errors.filter((e) => e.level === 'warn')} />}
+        </div>
         {gone && (
           <FatalOverlay
             id={id}

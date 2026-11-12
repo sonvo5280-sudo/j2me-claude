@@ -144,6 +144,10 @@ export default function Home({ go }) {
           );
         })}
       </ul>
+
+      <p className="mt-10 text-center text-xs text-slate-600">
+        <button onClick={() => go('/status')} className="underline-offset-2 hover:text-slate-400 hover:underline">Trạng thái máy chủ</button>
+      </p>
     </div>
   );
 }

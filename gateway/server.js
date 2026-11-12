@@ -1,5 +1,6 @@
 import http from 'node:http';
 import fs from 'node:fs';
+import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -28,6 +29,52 @@ fs.mkdirSync(GAMES_DIR, { recursive: true });
 
 /** @type {Map<string, any>} */
 const sessions = new Map();
+
+// Problems in the gateway itself, kept for /api/health so they are visible without reading server logs.
+const gwErrors = [];
+const STARTED = Date.now();
+function recordError(where, err) {
+  const e = err instanceof Error ? err : new Error(String(err));
+  console.error(`[gateway] ${where}:`, e);
+  gwErrors.push({ at: Date.now(), where, message: e.message, stack: String(e.stack || '').split('\n').slice(0, 6).join('\n') });
+  if (gwErrors.length > 20) gwErrors.shift();
+}
+
+/** Resident memory of a worker JVM in MB (Linux only; null elsewhere). */
+function rssMB(pid) {
+  try {
+    const m = fs.readFileSync(`/proc/${pid}/status`, 'utf8').match(/VmRSS:\s+(\d+) kB/);
+    return m ? Math.round(Number(m[1]) / 1024) : null;
+  } catch {
+    return null;
+  }
+}
+
+function health() {
+  const list = [...sessions.values()];
+  const mb = (n) => Math.round(n / 1048576);
+  return {
+    ok: true,
+    now: Date.now(),
+    uptimeSec: Math.round((Date.now() - STARTED) / 1000),
+    node: process.version,
+    sessions: {
+      running: list.filter((x) => x.status === 'running').length,
+      total: list.length,
+      max: MAX_SESSIONS,
+      list: list.map((x) => ({
+        id: x.id, game: x.game, status: x.status, viewers: x.clients.size,
+        rssMB: x.status === 'running' ? rssMB(x.proc.pid) : null,
+        errors: x.errors.length,
+      })),
+    },
+    memory: { gatewayRssMB: mb(process.memoryUsage().rss), systemTotalMB: mb(os.totalmem()), systemFreeMB: mb(os.freemem()) },
+    cpu: { cores: os.cpus().length, load1: Number(os.loadavg()[0].toFixed(2)) },
+    cores: { available: CORES, default: DEFAULT_CORE },
+    net: ALLOW_NET ? 'allowed' : 'off',
+    errors: gwErrors,
+  };
+}
 
 function listGames() {
   return fs
@@ -240,6 +287,7 @@ const server = http.createServer(async (req, res) => {
       return res.end();
     }
 
+    if (url.pathname === '/api/health' && req.method === 'GET') return json(res, 200, health());
     if (url.pathname === '/api/cores' && req.method === 'GET') return json(res, 200, { cores: CORES, default: DEFAULT_CORE });
     if (url.pathname === '/api/games' && req.method === 'GET') return json(res, 200, listGames());
     if (url.pathname === '/api/games' && req.method === 'POST') {
@@ -281,7 +329,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && !url.pathname.startsWith('/api/') && serveStatic(url, res)) return;
     json(res, 404, { error: 'not found' });
   } catch (e) {
-    json(res, e.code === 400 || e.code === 413 ? e.code : 500, { error: e.message });
+    const code = e.code === 400 || e.code === 413 ? e.code : 500;
+    if (code === 500) recordError(`${req.method} ${url.pathname}`, e);
+    if (res.headersSent) return res.end();
+    json(res, code, { error: e.message });
   }
 });
 
@@ -315,6 +366,20 @@ wss.on('connection', (ws, req) => {
     setWatching(s); // nobody left -> worker stops encoding frames, game continues
   });
 });
+
+// One bug must not take every running game down with it: record it (visible in /api/health) and carry on,
+// unless errors come in a flood, which means the process is not in a sane state any more.
+function survive(where) {
+  return (err) => {
+    recordError(where, err);
+    const recent = gwErrors.filter((x) => Date.now() - x.at < 60_000).length;
+    if (recent > 20) { console.error('[gateway] too many errors, exiting'); process.exit(1); }
+  };
+}
+process.on('uncaughtException', survive('uncaughtException'));
+process.on('unhandledRejection', survive('unhandledRejection'));
+server.on('error', (e) => { recordError('http server', e); if (e.code === 'EADDRINUSE') process.exit(1); });
+wss.on('error', (e) => recordError('websocket server', e));
 
 process.on('SIGINT', () => {
   for (const s of sessions.values()) if (s.status === 'running') s.proc.stdin.write('Q\n');

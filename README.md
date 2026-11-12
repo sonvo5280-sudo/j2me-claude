@@ -89,3 +89,12 @@ M3G/Bluetooth không) rồi báo lỗi bằng dòng `ERROR fatal|warn <base64>` 
 - **lỗi nặng** (không khởi chạy được, tiến trình thoát bất thường, máy chủ không có Java): màn hình giải thích, kèm gợi ý, chi tiết kỹ thuật,
   nút "Xem log" và "Sao chép lỗi";
 - **cảnh báo** (một luồng của game chết vì ngoại lệ, game dùng API chưa hỗ trợ, 25 giây chưa vẽ gì): dải màu cam phía trên màn hình, bấm để xem chi tiết.
+
+## Lỗi phía máy chủ và mất kết nối
+
+- Trang điều khiển hiện dải đỏ "Mất kết nối" sau 3 giây và tự dò nguyên nhân: thiết bị không có mạng, máy chủ không trả lời,
+  hoặc máy chủ vẫn sống nhưng kết nối trực tiếp tới game (WebSocket) bị ngắt. Nếu máy chủ khởi động lại thì phiên mất và trang giải thích điều đó.
+- `GET /api/health` (và trang `/status`): thời gian chạy, số phiên, RAM mỗi phiên, RAM/CPU máy chủ và 20 lỗi gần nhất của gateway
+  (ngoại lệ không bắt, lỗi 500…). Gateway ghi lại rồi chạy tiếp để một lỗi không kéo sập mọi game; nếu có hơn 20 lỗi trong một phút thì tự thoát.
+  Chưa có xác thực nên đừng mở trang này ra Internet.
+- Worker cảnh báo khi: không ghi được thư mục lưu game, ổ đĩa còn dưới 20 MB, không mã hóa được hình ảnh.
