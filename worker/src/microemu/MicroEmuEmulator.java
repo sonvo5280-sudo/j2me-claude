@@ -32,6 +32,9 @@ import org.microemu.device.j2se.J2SEDeviceDisplay;
 import org.microemu.device.j2se.J2SEFontManager;
 import org.microemu.device.j2se.J2SEGraphicsSurface;
 import org.microemu.device.j2se.J2SEInputMethod;
+import org.microemu.log.Logger;
+import org.microemu.log.LoggerAppender;
+import org.microemu.log.LoggingEvent;
 
 /**
  * Runs a MIDlet jar on the real MicroEmulator core (org.microemu.*), headless:
@@ -114,6 +117,25 @@ class MicroEmuEmulator implements Emulator {
             }
         };
 
+        // MicroEmulator swallows an exception that ends a game thread ("MIDletThread throws", debug level),
+        // which is how a game can freeze without any message. Surface those and its error-level reports.
+        try {
+            java.lang.reflect.Field dbg = org.microemu.app.util.MIDletThread.class.getDeclaredField("debug");
+            dbg.setAccessible(true);
+            dbg.setBoolean(null, true);
+        } catch (Exception ex) {
+            System.err.println("[microemu] cannot enable thread error reports: " + ex);
+        }
+        Logger.addAppender(new LoggerAppender() {
+            @Override public void append(LoggingEvent e) {
+                Throwable t = e.getThrowable();
+                if (t == null || String.valueOf(e.getMessage()).startsWith("Creating thread with no MIDlet context")) return;
+                boolean thread = e.getLevel() == LoggingEvent.DEBUG && String.valueOf(e.getMessage()).startsWith("MIDletThread throws");
+                if (thread) Errors.warn("Một luồng của game bị dừng vì lỗi", t);
+                else if (e.getLevel() == LoggingEvent.ERROR) Errors.warn("Game gặp lỗi: " + Errors.root(t).getClass().getSimpleName(), t);
+            }
+        });
+
         System.err.println("[worker] core=microemu jar=" + jar.getName() + " screen=" + w + "x" + h + " net=" + net);
 
         Thread boot = new Thread(() -> {
@@ -129,9 +151,10 @@ class MicroEmuEmulator implements Emulator {
                 emulator.initMIDlet(true);
                 System.err.println("[worker] initMIDlet returned");
             } catch (Throwable t) {
-                failure = t.toString();
+                failure = Errors.root(t).toString();
                 System.err.println("[worker] MicroEmulator failed to start: " + t);
                 t.printStackTrace();
+                Errors.fatal("Game không khởi chạy được", t);
             }
         }, "midlet-main");
         boot.start();
@@ -228,6 +251,9 @@ class MicroEmuEmulator implements Emulator {
         });
     }
 
+    @Override public boolean alive() { return failure == null; }
+    @Override public boolean failed() { return failure != null; }
+
     @Override public void invalidate() { force = true; }
 
     @Override public BufferedImage frame() {
@@ -252,15 +278,32 @@ class MicroEmuEmulator implements Emulator {
     private BufferedImage errorFrame(String msg) {
         BufferedImage b = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = b.createGraphics();
-        g.setColor(new Color(40, 10, 10));
+        g.setColor(new Color(60, 12, 12));
         g.fillRect(0, 0, w, h);
         g.setColor(Color.WHITE);
-        g.drawString("MicroEmulator failed to start:", 8, 20);
-        int y = 40;
-        for (int i = 0; i < msg.length(); i += 34) {
-            g.drawString(msg.substring(i, Math.min(msg.length(), i + 34)), 8, y);
-            y += 14;
+        java.awt.FontMetrics fm = g.getFontMetrics();
+        int y = 18;
+        g.drawString("Game khong khoi chay duoc", 8, y);
+        y += 18;
+        g.setColor(new Color(255, 200, 200));
+        StringBuilder line = new StringBuilder();
+        for (String word : msg.split(" ")) {
+            while (fm.stringWidth(word) > w - 16 && word.length() > 1) { // break very long class names
+                int n = word.length();
+                while (n > 1 && fm.stringWidth(word.substring(0, n)) > w - 16) n--;
+                if (line.length() > 0) { g.drawString(line.toString(), 8, y); y += 14; line.setLength(0); }
+                g.drawString(word.substring(0, n), 8, y); y += 14;
+                word = word.substring(n);
+            }
+            if (fm.stringWidth(line + " " + word) > w - 16 && line.length() > 0) {
+                g.drawString(line.toString(), 8, y); y += 14; line.setLength(0);
+            }
+            if (line.length() > 0) line.append(' ');
+            line.append(word);
         }
+        if (line.length() > 0) { g.drawString(line.toString(), 8, y); y += 14; }
+        g.setColor(Color.LIGHT_GRAY);
+        g.drawString("Chi tiet: xem log cua phien.", 8, Math.max(y + 10, h - 10));
         g.dispose();
         return b;
     }

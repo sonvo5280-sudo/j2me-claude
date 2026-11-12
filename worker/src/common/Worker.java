@@ -108,8 +108,27 @@ public class Worker {
         int h = Integer.parseInt(opt(args, "--h", "320"));
         boolean net = opt(args, "--net", "off").equals("on");
         if (!net) denyNetwork();
-        final Emulator emu = jar == null ? new StubGame() : createEmulator(opt(args, "--core", "own"), jar, w, h,
-                new File(opt(args, "--rms", "rms")), net, opt(args, "--touch", "on").equals("on"), opt(args, "--midlet", null));
+        // anything a game thread throws is kept in the log and shown to the person watching
+        Thread.setDefaultUncaughtExceptionHandler((th, e) -> {
+            System.err.println("Exception in thread \"" + th.getName() + "\"");
+            e.printStackTrace();
+            Errors.warn("Một luồng của game bị lỗi (" + th.getName() + ")", e);
+        });
+        Emulator made;
+        try {
+            if (jar == null) made = new StubGame();
+            else if (!Preflight.check(new File(jar), opt(args, "--midlet", null))) { System.exit(2); return; }
+            else made = createEmulator(opt(args, "--core", "own"), jar, w, h,
+                    new File(opt(args, "--rms", "rms")), net, opt(args, "--touch", "on").equals("on"), opt(args, "--midlet", null));
+        } catch (Throwable t) {
+            t.printStackTrace();
+            Errors.fatal("Không khởi tạo được giả lập", t);
+            System.exit(2);
+            return;
+        }
+        final Emulator emu = made;
+        final long startedAt = System.currentTimeMillis();
+        final boolean[] warnedBlank = {false};
 
         final boolean[] watching = {false};
 
@@ -156,8 +175,18 @@ public class Worker {
         }, 0, 66, TimeUnit.MILLISECONDS);
 
         ex.scheduleAtFixedRate(() -> {
-            System.err.println("STATE " + emu.state());
-            if (!emu.alive()) { System.err.println("[worker] game exited"); System.exit(0); }
+            String st = emu.state();
+            System.err.println("STATE " + st);
+            if (!warnedBlank[0] && st.contains("paints=0 ") && System.currentTimeMillis() - startedAt > 25_000) {
+                warnedBlank[0] = true;
+                Errors.warn("Game chưa hiện hình sau 25 giây",
+                    "Game đã được nạp nhưng chưa vẽ gì lên màn hình. Có thể đang chờ mạng/tài nguyên, hoặc bị treo.\n"
+                    + "Xem log của phiên để biết thêm.");
+            }
+            if (!emu.alive()) {
+                System.err.println("[worker] game exited");
+                System.exit(emu.failed() ? 2 : 0);
+            }
         }, 1, 1, TimeUnit.SECONDS);
 
         BufferedReader in = new BufferedReader(new InputStreamReader(System.in, "UTF-8"));

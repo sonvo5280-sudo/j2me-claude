@@ -78,6 +78,8 @@ function createSession(opts = {}) {
     framesSent: 0,
     state: {},
     log: [],
+    errors: [], // {level: 'fatal'|'warn', title, detail}
+    exitCode: null,
   };
 
   // stdout: [uint32 BE length][JPEG] frames
@@ -113,6 +115,16 @@ function createSession(opts = {}) {
           const [k, v] = kv.split('=');
           s.state[k] = Number(v);
         }
+      } else if (line.startsWith('ERROR ')) {
+        // "ERROR fatal|warn <base64 of 'title\\ndetail'>" written by the worker
+        const m = line.match(/^ERROR (fatal|warn) (\S+)$/);
+        if (m) {
+          const text = Buffer.from(m[2], 'base64').toString('utf8');
+          const nl = text.indexOf('\n');
+          if (s.errors.length < 20) s.errors.push({ level: m[1], title: nl < 0 ? text : text.slice(0, nl), detail: nl < 0 ? '' : text.slice(nl + 1) });
+        }
+        s.log.push(line.length > 300 ? line.slice(0, 300) + '…' : line);
+        if (s.log.length > 300) s.log.shift();
       } else if (line.trim()) {
         s.log.push(line);
         if (s.log.length > 300) s.log.shift();
@@ -121,8 +133,31 @@ function createSession(opts = {}) {
     }
   });
 
-  proc.on('exit', (code) => {
+  // java missing / not executable: without this handler the whole gateway would crash
+  proc.on('error', (e) => {
     s.status = 'stopped';
+    s.errors.push({
+      level: 'fatal',
+      title: 'Không chạy được Java trên máy chủ',
+      detail: `${e.message}\nGợi ý: máy chủ cần JDK/JRE 21 có lệnh "java" trong PATH.`,
+    });
+    for (const ws of s.clients) ws.close(4000, 'session ended');
+    s.clients.clear();
+  });
+
+  proc.on('exit', (code, signal) => {
+    s.exitCode = code ?? signal;
+    s.status = 'stopped';
+    if ((code !== 0 || signal) && !s.errors.some((x) => x.level === 'fatal')) {
+      // the JVM died without explaining itself (bad classpath, OOM kill, crash): hand over the log tail
+      const tail = s.log.filter((l) => !l.startsWith('ERROR ')).slice(-25).join('\n');
+      s.errors.push({
+        level: 'fatal',
+        title: signal ? `Tiến trình giả lập bị dừng (${signal})` : `Tiến trình giả lập thoát bất thường (mã ${code})`,
+        detail: (signal === 'SIGKILL' ? 'Gợi ý: có thể máy chủ hết bộ nhớ và hệ điều hành đã dừng tiến trình.\n\n' : '') +
+          (tail ? 'Những dòng log cuối:\n' + tail : 'Không có log nào.'),
+      });
+    }
     for (const ws of s.clients) ws.close(4000, 'session ended');
     s.clients.clear();
     console.log(`[${id}] worker exited (${code})`);
@@ -148,6 +183,8 @@ function publicInfo(s) {
     framesReceived: s.framesReceived,
     framesSent: s.framesSent,
     state: s.state,
+    errors: s.errors,
+    exitCode: s.exitCode,
   };
 }
 

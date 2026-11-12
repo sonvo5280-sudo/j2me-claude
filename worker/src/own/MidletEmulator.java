@@ -61,6 +61,7 @@ class MidletEmulator implements Emulator {
             } catch (Throwable t) {
                 Throwable root = t instanceof java.lang.reflect.InvocationTargetException && t.getCause() != null ? t.getCause() : t;
                 failure = root.toString();
+                Errors.fatal("Game không khởi chạy được", t);
                 System.err.println("[worker] MIDlet failed to start: " + root);
                 root.printStackTrace();
             }

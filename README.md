@@ -79,3 +79,13 @@ Chế độ gỡ lỗi không cần gateway (ảnh PNG sau 6 giây, có thể ch
   Nút bàn phím (chỉ hiện trên điện thoại) mở bàn phím của điện thoại qua một ô ẩn không hiển thị gì, chữ gõ được chuyển ngay cho game.
   Khi game mở ô nhập (TextBox) thì chữ được chèn thẳng (số vẫn là số, không multi-tap); khi game tự vẽ ô nhập trên Canvas thì nhận mã phím.
   Bàn phím vật lý, phím ảo và bàn phím điện thoại là ba nguồn độc lập: một phím chỉ nhả khi cả ba đều đã nhả.
+
+## Khi game không chạy được
+
+Worker kiểm tra jar trước khi nạp (có phải zip, có `MANIFEST.MF`, có `MIDlet-1`, lớp chính có trong jar, có dùng API chưa hỗ trợ như
+M3G/Bluetooth không) rồi báo lỗi bằng dòng `ERROR fatal|warn <base64>` trên stderr. Gateway gom lại thành `errors` trong
+`GET /api/sessions/:id`; trang điều khiển hiện:
+
+- **lỗi nặng** (không khởi chạy được, tiến trình thoát bất thường, máy chủ không có Java): màn hình giải thích, kèm gợi ý, chi tiết kỹ thuật,
+  nút "Xem log" và "Sao chép lỗi";
+- **cảnh báo** (một luồng của game chết vì ngoại lệ, game dùng API chưa hỗ trợ, 25 giây chưa vẽ gì): dải màu cam phía trên màn hình, bấm để xem chi tiết.

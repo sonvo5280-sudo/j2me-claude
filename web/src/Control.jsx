@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, prettyName } from './api.js';
 import Keypad from './Keypad.jsx';
+import { FatalOverlay, WarnBanner } from './ErrorPanel.jsx';
 
 // Physical keyboard -> J2ME key codes. Anything printable is sent as its own character code
 // (letters, digits, space, symbols), so the game receives exactly what was typed.
@@ -57,13 +58,15 @@ export default function Control({ id, go }) {
     return () => ro.disconnect();
   }, [fit]);
 
-  // ---- session info ----
+  // ---- session info: polled, so errors reported by the worker show up as they happen ----
   useEffect(() => {
     let dead = false;
-    api.session(id)
+    const load = () => api.session(id)
       .then((s) => { if (!dead) { setInfo(s); if (s.status !== 'running') setPhase('ended'); } })
       .catch((e) => { if (!dead && e.status === 404) setPhase('missing'); });
-    return () => { dead = true; };
+    load();
+    const t = setInterval(load, 2000);
+    return () => { dead = true; clearInterval(t); };
   }, [id]);
 
   // ---- websocket with reconnect; closing it never stops the game ----
@@ -234,7 +237,9 @@ export default function Control({ id, go }) {
   }, [confirm]);
 
   const title = prettyName(info?.game);
-  const gone = phase === 'ended' || phase === 'missing';
+  const errors = info?.errors || [];
+  const fatal = errors.some((e) => e.level === 'fatal');
+  const gone = phase === 'ended' || phase === 'missing' || fatal;
 
   return (
     <div className="flex h-full flex-col bg-black">
@@ -285,23 +290,16 @@ export default function Control({ id, go }) {
         {phase === 'connecting' && !gone && (
           <div className="pointer-events-none absolute inset-x-0 top-3 text-center text-xs text-slate-400">Đang kết nối…</div>
         )}
+        {!gone && <WarnBanner warns={errors.filter((e) => e.level === 'warn')} />}
         {gone && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
-            <p className="text-slate-200">
-              {phase === 'missing' ? 'Không tìm thấy phiên chơi này.' : 'Game đã dừng.'}
-            </p>
-            <div className="flex gap-2">
-              <button onClick={() => go('/')} className="rounded-lg bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700">Về trang chủ</button>
-              {info?.game && (
-                <button
-                  onClick={() => start(info.game).catch((e) => alert(e.message))}
-                  className="rounded-lg bg-sky-600 px-4 py-2 text-sm hover:bg-sky-500"
-                >
-                  Chơi lại
-                </button>
-              )}
-            </div>
-          </div>
+          <FatalOverlay
+            id={id}
+            info={info}
+            phase={phase}
+            errors={errors}
+            go={go}
+            onRetry={() => start(info.game).catch((e) => alert(e.message))}
+          />
         )}
       </main>
 

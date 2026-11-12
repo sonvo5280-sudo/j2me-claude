@@ -19,4 +19,7 @@ public interface Emulator {
     String state();
 
     default boolean alive() { return true; }
+
+    /** True when alive() is false because the game could not start (as opposed to a normal exit). */
+    default boolean failed() { return false; }
 }
