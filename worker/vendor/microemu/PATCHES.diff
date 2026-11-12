@@ -1,0 +1,110 @@
+--- a/microemu-midp/src/main/java/javax/microedition/lcdui/Displayable.java
++++ b/microemu-midp/src/main/java/javax/microedition/lcdui/Displayable.java
+@@ -87,6 +87,26 @@
+ 	}
+     
+     
++    /**
++     * Same value as getWidth(), but final: MicroEmulator uses this for its own repaint and layout decisions so that
++     * a MIDlet that overrides Canvas.getWidth()/getHeight() (some Teamobi games return -1) cannot break them.
++     */
++    public final int getEmuWidth()
++    {
++    	if (width == -1) {
++    		updateWidthAndHeight();
++    	}
++    	return width;
++    }
++
++    public final int getEmuHeight()
++    {
++    	if (height == -1) {
++    		updateWidthAndHeight();
++    	}
++    	return height;
++    }
++
+     public int getWidth()
+     {
+     	if (width == -1) {
+@@ -221,7 +241,7 @@
+ 	void repaint()
+ 	{
+ 		if (currentDisplay != null) {
+-			repaint(0, 0, getWidth(), getHeight());
++			repaint(0, 0, getEmuWidth(), getEmuHeight());
+ 		}
+ 	}
+ 
+@@ -256,7 +276,7 @@
+         viewPortY = 0;
+         // TODO remove this StringComponent object when native UI is completed
+         StringComponent title = new StringComponent(getTitle());
+-        viewPortHeight = getHeight() - title.getHeight() - 1;
++        viewPortHeight = getEmuHeight() - title.getHeight() - 1;
+         if (ticker != null) {
+         		viewPortHeight -= this.ticker.getHeight();
+         }
+--- a/microemu-midp/src/main/java/javax/microedition/lcdui/Display.java
++++ b/microemu-midp/src/main/java/javax/microedition/lcdui/Display.java
+@@ -113,7 +113,7 @@
+ 						}
+ 						ticker.textPos -= Ticker.PAINT_MOVE;
+ 					}
+-					repaint(current, 0, 0, current.getWidth(), current.getHeight());
++					repaint(current, 0, 0, current.getEmuWidth(), current.getEmuHeight());
+ 				}
+ 			}
+ 		}
+@@ -384,7 +384,7 @@
+ 		public void repaint() {
+ 			Displayable d = getCurrent();
+ 			if (d != null) {
+-				getDisplay().repaint(d, 0, 0, d.getWidth(), d.getHeight());
++				getDisplay().repaint(d, 0, 0, d.getEmuWidth(), d.getEmuHeight());
+ 			}
+ 		}
+ 
+@@ -634,7 +634,7 @@
+ 		//
+ 		if (EventDispatcher.EVENT_DISPATCHER_NAME.equals(Thread.currentThread().getName())) {
+ 			if (current != null) {
+-				DeviceFactory.getDevice().getDeviceDisplay().repaint(0, 0, current.getWidth(), current.getHeight());
++				DeviceFactory.getDevice().getDeviceDisplay().repaint(0, 0, current.getEmuWidth(), current.getEmuHeight());
+ 			}
+ 			return;
+ 		}
+--- a/microemu-midp/src/main/java/javax/microedition/lcdui/game/GameCanvas.java
++++ b/microemu-midp/src/main/java/javax/microedition/lcdui/game/GameCanvas.java
+@@ -98,7 +98,7 @@
+     }
+ 
+     public void flushGraphics() {
+-    	flushGraphics(0, 0, getWidth(), getHeight());
++    	flushGraphics(0, 0, getEmuWidth(), getEmuHeight());
+     }
+ 
+     public int getKeyStates() {
+--- a/microemu-javase-swing/src/main/java/org/microemu/device/j2se/J2SEDeviceDisplay.java
++++ b/microemu-javase-swing/src/main/java/org/microemu/device/j2se/J2SEDeviceDisplay.java
+@@ -193,16 +193,16 @@
+ 		Graphics g = graphicsSurface.getGraphics();
+ 		g.setColor(foregroundColor);
+ 		java.awt.Shape oldclip = g.getClip();
+-		if (!(current instanceof Canvas) || ((Canvas) current).getWidth() != displayRectangle.width
+-				|| ((Canvas) current).getHeight() != displayRectangle.height) {
++		if (!(current instanceof Canvas) || ((Canvas) current).getEmuWidth() != displayRectangle.width
++				|| ((Canvas) current).getEmuHeight() != displayRectangle.height) {
+ 			g.translate(displayPaintable.x, displayPaintable.y);
+ 		}
+ 		g.setClip(x, y, width, height);
+ 		Font oldf = g.getFont();
+ 		ma.getDisplayAccess().paint(new J2SEDisplayGraphics(graphicsSurface));
+ 		g.setFont(oldf);
+-		if (!(current instanceof Canvas) || ((Canvas) current).getWidth() != displayRectangle.width
+-				|| ((Canvas) current).getHeight() != displayRectangle.height) {
++		if (!(current instanceof Canvas) || ((Canvas) current).getEmuWidth() != displayRectangle.width
++				|| ((Canvas) current).getEmuHeight() != displayRectangle.height) {
+ 			g.translate(-displayPaintable.x, -displayPaintable.y);
+ 		}
+ 		g.setClip(oldclip);

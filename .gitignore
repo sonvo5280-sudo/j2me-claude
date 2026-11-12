@@ -1,0 +1,9 @@
+node_modules/
+web/dist/
+worker/build/
+data/
+# Game files are third-party and copyrighted: upload them from the home page instead of committing them.
+games/*.jar
+games/*.jad
+.DS_Store
+*.log

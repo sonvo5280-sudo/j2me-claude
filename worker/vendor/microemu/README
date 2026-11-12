@@ -1,0 +1,4 @@
+MicroEmulator (https://github.com/barteo/microemu), modules microemu-cldc, microemu-midp, microemu-javase and
+microemu-javase-swing copied unmodified from the source archive supplied by the project owner.
+Dual licensed: Apache License 2.0 (COPYING-AL-2.0) and LGPL 2.1 (COPYING-LGPL-2.1). See COPYING and CREDITS.
+Built directly with javac by ../../build.sh (no Maven). NanoXML sources live inside microemu-javase.
