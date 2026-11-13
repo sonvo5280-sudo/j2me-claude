@@ -386,4 +386,4 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
-server.listen(PORT, () => console.log(`gateway on :${PORT}, games ${GAMES_DIR}, cores [${CORES}] default ${DEFAULT_CORE}, net ${ALLOW_NET ? 'allowed' : 'off'}`));
+server.listen(PORT, '0.0.0.0', () => console.log(`gateway on :${PORT}, games ${GAMES_DIR}, cores [${CORES}] default ${DEFAULT_CORE}, net ${ALLOW_NET ? 'allowed' : 'off'}`));
