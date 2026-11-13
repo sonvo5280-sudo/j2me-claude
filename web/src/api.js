@@ -1,8 +1,18 @@
 async function call(url, opts) {
   const r = await fetch(url, opts);
+  const text = await r.text();
   let body = null;
-  try { body = await r.json(); } catch { /* empty body */ }
-  if (!r.ok) throw Object.assign(new Error(body?.error || `HTTP ${r.status}`), { status: r.status });
+  try { body = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
+  if (!r.ok) {
+    throw Object.assign(new Error(body?.error || `Máy chủ trả về lỗi HTTP ${r.status}${text && !body ? `: ${text.slice(0, 120)}` : ''}`), { status: r.status });
+  }
+  if (body === null || typeof body !== 'object') {
+    // e.g. a proxy in front of the server answering 200 with a web page instead of the API's JSON
+    throw Object.assign(
+      new Error(`Phản hồi không hợp lệ từ ${url} (HTTP ${r.status}, ${r.headers.get('content-type') || 'không rõ kiểu'}): ${text.slice(0, 120) || '(rỗng)'}`),
+      { status: r.status },
+    );
+  }
   return body;
 }
 

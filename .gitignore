@@ -7,3 +7,4 @@ games/*.jar
 games/*.jad
 .DS_Store
 *.log
+.jdk/
