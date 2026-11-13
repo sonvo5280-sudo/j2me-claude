@@ -98,3 +98,13 @@ M3G/Bluetooth không) rồi báo lỗi bằng dòng `ERROR fatal|warn <base64>` 
   (ngoại lệ không bắt, lỗi 500…). Gateway ghi lại rồi chạy tiếp để một lỗi không kéo sập mọi game; nếu có hơn 20 lỗi trong một phút thì tự thoát.
   Chưa có xác thực nên đừng mở trang này ra Internet.
 - Worker cảnh báo khi: không ghi được thư mục lưu game, ổ đĩa còn dưới 20 MB, không mã hóa được hình ảnh.
+
+## Chạy bằng một lệnh (từ thư mục gốc)
+
+```bash
+npm install     # cài web + gateway (postinstall)
+npm start       # tự build web và worker nếu chưa có, rồi chạy ở http://localhost:3000 (đổi bằng PORT)
+```
+
+Cần Node 20+ và JDK 21 (có `javac`). Không có JDK thì trang vẫn mở được nhưng bấm "Chơi" sẽ báo lỗi thiếu Java.
+`npm run build` chỉ build web; `npm test` chạy bài kiểm tra phiên giữ sống của gateway.

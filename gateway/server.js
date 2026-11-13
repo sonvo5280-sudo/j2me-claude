@@ -89,7 +89,7 @@ function createSession(opts = {}) {
   const workerArgs = [];
   let game = null;
   const core = CORES.includes(opts.core) ? opts.core : DEFAULT_CORE;
-  if (!core) throw Object.assign(new Error('worker is not built (run worker/build.sh)'), { code: 500 });
+  if (!core) throw Object.assign(new Error('Máy chủ chưa có bản build của worker Java (cần JDK 21, chạy worker/build.sh hoặc npm start)'), { code: 503 });
   if (opts.game) {
     const name = path.basename(String(opts.game));
     if (!listGames().some((g) => g.name === name)) throw Object.assign(new Error('unknown game'), { code: 400 });
@@ -329,7 +329,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && !url.pathname.startsWith('/api/') && serveStatic(url, res)) return;
     json(res, 404, { error: 'not found' });
   } catch (e) {
-    const code = e.code === 400 || e.code === 413 ? e.code : 500;
+    const code = [400, 413, 503].includes(e.code) ? e.code : 500;
     if (code === 500) recordError(`${req.method} ${url.pathname}`, e);
     if (res.headersSent) return res.end();
     json(res, code, { error: e.message });

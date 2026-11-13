@@ -1,0 +1,17 @@
+{
+  "name": "j2me-cloud-player",
+  "version": "0.1.0",
+  "private": true,
+  "description": "J2ME games running on the server (MicroEmulator, one JVM per session); the browser is only screen and keyboard.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "postinstall": "npm --prefix web install && npm --prefix gateway install",
+    "build": "npm --prefix web run build",
+    "start": "node scripts/start.mjs",
+    "dev": "node scripts/start.mjs",
+    "test": "npm --prefix gateway test"
+  }
+}
