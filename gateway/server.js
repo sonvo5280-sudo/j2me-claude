@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { WebSocketServer } from 'ws';
@@ -22,8 +22,30 @@ const GAMES_DIR = path.resolve(process.env.GAMES_DIR || path.join(HERE, '../game
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(HERE, '../data'));
 const WEB_DIST = path.resolve(HERE, '../web/dist');
 const MAX_SESSIONS = Number(process.env.MAX_SESSIONS || 5);
-const ALLOW_NET = process.env.ALLOW_NET === '1'; // game network access, off unless the operator opts in
+const ALLOW_NET = process.env.ALLOW_NET !== '0'; // game network access, on unless ALLOW_NET=0
+const APP_PASSWORD = process.env.APP_PASSWORD || '';
 const MAX_UPLOAD = 30 * 1024 * 1024;
+
+function safeEqual(a, b) {
+  const ha = createHash('sha256').update(String(a), 'utf8').digest();
+  const hb = createHash('sha256').update(String(b), 'utf8').digest();
+  return timingSafeEqual(ha, hb);
+}
+
+function isAuthorized(req) {
+  if (!APP_PASSWORD) return true;
+  const h = req.headers.authorization;
+  if (typeof h !== 'string') return false;
+  const m = h.match(/^Basic\s+(.+)$/i);
+  if (!m) return false;
+  let decoded;
+  try { decoded = Buffer.from(m[1], 'base64').toString('utf8'); } catch { return false; }
+  const idx = decoded.indexOf(':');
+  if (idx < 0) return false;
+  const okUser = safeEqual(decoded.slice(0, idx), 'admin');
+  const okPass = safeEqual(decoded.slice(idx + 1), APP_PASSWORD);
+  return okUser && okPass;
+}
 
 fs.mkdirSync(GAMES_DIR, { recursive: true });
 
@@ -50,7 +72,7 @@ function rssMB(pid) {
   }
 }
 
-function health() {
+function health(includeDetails = true) {
   const list = [...sessions.values()];
   const mb = (n) => Math.round(n / 1048576);
   return {
@@ -62,17 +84,17 @@ function health() {
       running: list.filter((x) => x.status === 'running').length,
       total: list.length,
       max: MAX_SESSIONS,
-      list: list.map((x) => ({
+      list: includeDetails ? list.map((x) => ({
         id: x.id, game: x.game, status: x.status, viewers: x.clients.size,
         rssMB: x.status === 'running' ? rssMB(x.proc.pid) : null,
         errors: x.errors.length,
-      })),
+      })) : [],
     },
     memory: { gatewayRssMB: mb(process.memoryUsage().rss), systemTotalMB: mb(os.totalmem()), systemFreeMB: mb(os.freemem()) },
     cpu: { cores: os.cpus().length, load1: Number(os.loadavg()[0].toFixed(2)) },
     cores: { available: CORES, default: DEFAULT_CORE },
     net: ALLOW_NET ? 'allowed' : 'off',
-    errors: gwErrors,
+    errors: includeDetails ? gwErrors : [],
   };
 }
 
@@ -99,7 +121,7 @@ function createSession(opts = {}) {
     workerArgs.push('--jar', path.join(GAMES_DIR, name), '--rms', rms, '--core', core);
     const w = Number(opts.w), h = Number(opts.h);
     if (w >= 96 && w <= 480 && h >= 96 && h <= 640) workerArgs.push('--w', String(w), '--h', String(h));
-    if (ALLOW_NET && opts.net) workerArgs.push('--net', 'on');
+    if (ALLOW_NET && opts.net !== false) workerArgs.push('--net', 'on');
     if (opts.touch === false) workerArgs.push('--touch', 'off');
   }
   const proc = spawn(
@@ -278,16 +300,25 @@ function serveStatic(url, res) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   try {
+    if (url.pathname === '/api/health' && req.method === 'GET') return json(res, 200, health(isAuthorized(req)));
+
+    if (!isAuthorized(req)) {
+      res.writeHead(401, {
+        'www-authenticate': 'Basic realm="J2ME Cloud Player"',
+        'content-type': 'text/plain; charset=utf-8',
+      });
+      return res.end('Unauthorized');
+    }
+
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
         'access-control-allow-origin': '*',
         'access-control-allow-methods': 'GET,POST,PUT,DELETE',
-        'access-control-allow-headers': 'content-type',
+        'access-control-allow-headers': 'content-type,authorization',
       });
       return res.end();
     }
 
-    if (url.pathname === '/api/health' && req.method === 'GET') return json(res, 200, health());
     if (url.pathname === '/api/cores' && req.method === 'GET') return json(res, 200, { cores: CORES, default: DEFAULT_CORE });
     if (url.pathname === '/api/games' && req.method === 'GET') return json(res, 200, listGames());
     if (url.pathname === '/api/games' && req.method === 'POST') {
@@ -337,7 +368,22 @@ const server = http.createServer(async (req, res) => {
 });
 
 // WebSocket: attach/detach a viewer. Closing the socket NEVER stops the session.
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({ noServer: true });
+server.on('upgrade', (req, socket, head) => {
+  const url = new URL(req.url, 'http://x');
+  if (url.pathname !== '/ws') {
+    socket.destroy();
+    return;
+  }
+  if (!isAuthorized(req)) {
+    socket.write('HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm="J2ME Cloud Player"\r\nConnection: close\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    wss.emit('connection', ws, req);
+  });
+});
 wss.on('connection', (ws, req) => {
   const id = new URL(req.url, 'http://x').searchParams.get('session');
   const s = sessions.get(id);
@@ -386,4 +432,12 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
-server.listen(PORT, '0.0.0.0', () => console.log(`gateway on :${PORT}, games ${GAMES_DIR}, cores [${CORES}] default ${DEFAULT_CORE}, net ${ALLOW_NET ? 'allowed' : 'off'}`));
+if (!APP_PASSWORD) {
+  console.warn('========================================================================');
+  console.warn('WARNING: APP_PASSWORD is NOT set! Server is running WITHOUT password!');
+  console.warn('Anyone on the network can upload and run .jar files with internet.');
+  console.warn('Set APP_PASSWORD in deployment environment variables before publishing.');
+  console.warn('========================================================================');
+}
+
+server.listen(PORT, '0.0.0.0', () => console.log(`gateway on :${PORT}, games ${GAMES_DIR}, cores [${CORES}] default ${DEFAULT_CORE}, net ${ALLOW_NET ? 'allowed' : 'off'}, auth ${APP_PASSWORD ? 'basic' : 'off'}`));

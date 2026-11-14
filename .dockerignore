@@ -1,0 +1,10 @@
+**/node_modules
+.git
+.jdk
+web/dist
+worker/build
+data
+games/*.jar
+games/*.jad
+*.log
+.env
