@@ -7,6 +7,7 @@
     "test": "node test.mjs"
   },
   "dependencies": {
+    "dejavu-fonts-ttf": "^2.37.3",
     "ws": "^8.18.0"
   }
 }

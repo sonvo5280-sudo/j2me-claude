@@ -26,6 +26,27 @@ const ALLOW_NET = process.env.ALLOW_NET !== '0'; // game network access, on unle
 const APP_PASSWORD = process.env.APP_PASSWORD || '';
 const MAX_UPLOAD = 30 * 1024 * 1024;
 
+function setupFonts() {
+  const src = path.join(HERE, 'node_modules', 'dejavu-fonts-ttf', 'ttf');
+  const regular = path.join(src, 'DejaVuSans.ttf');
+  const bold = path.join(src, 'DejaVuSans-Bold.ttf');
+  if (process.env.J2ME_SYSTEM_FONTS === '1' || !fs.existsSync(regular) || !fs.existsSync(bold)) return null;
+  const out = path.join(os.tmpdir(), 'j2me-fonts');
+  fs.mkdirSync(path.join(out, 'cache'), { recursive: true });
+  const conf = path.join(out, 'fonts.conf');
+  const props = path.join(out, 'fontconfig.properties');
+  fs.writeFileSync(conf,
+    `<?xml version="1.0"?>\n<!DOCTYPE fontconfig SYSTEM "fonts.dtd">\n<fontconfig><dir>${src}</dir><cachedir>${path.join(out, 'cache')}</cachedir></fontconfig>\n`);
+  let p = `version=1\nsequence.allfonts=default\nallfonts.default=DejaVu Sans\nfilename.DejaVu_Sans=${regular}\nfilename.DejaVu_Sans_Bold=${bold}\n`;
+  for (const l of ['serif', 'sansserif', 'monospaced', 'dialog', 'dialoginput']) {
+    p += `sequence.${l}=default\n${l}.plain.default=DejaVu Sans\n${l}.bold.default=DejaVu Sans Bold\n${l}.italic.default=DejaVu Sans\n${l}.bolditalic.default=DejaVu Sans Bold\n`;
+  }
+  fs.writeFileSync(props, p);
+  return { conf, props };
+}
+const FONTS = setupFonts();   // gọi một lần lúc khởi động
+if (!FONTS) console.warn('WARNING: bundled fonts not found, relying on system fonts');
+
 function safeEqual(a, b) {
   const ha = createHash('sha256').update(String(a), 'utf8').digest();
   const hb = createHash('sha256').update(String(b), 'utf8').digest();
@@ -129,9 +150,13 @@ function createSession(opts = {}) {
     [
       '--add-exports', 'java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED',
       '-Xmx256m', '-Djava.awt.headless=true', '-Dfile.encoding=UTF-8',
+      ...(FONTS ? [`-Dsun.awt.fontconfig=${FONTS.props}`] : []),
       '-cp', CORE_CP[core], 'Worker', ...workerArgs,
     ],
-    { stdio: ['pipe', 'pipe', 'pipe'] }
+    {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: FONTS ? { ...process.env, FONTCONFIG_FILE: FONTS.conf } : process.env,
+    }
   );
   proc.stdin.on('error', () => {});
   const s = {

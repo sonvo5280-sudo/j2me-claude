@@ -13,5 +13,8 @@
     "start": "node scripts/start.mjs",
     "dev": "node scripts/start.mjs",
     "test": "npm --prefix gateway test"
+  },
+  "dependencies": {
+    "dejavu-fonts-ttf": "^2.37.3"
   }
 }
